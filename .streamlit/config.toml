@@ -1,0 +1,15 @@
+[server]
+# Maximum upload size in MB (backend.py checks this too)
+maxUploadSize = 25
+# Only this laptop can open the app (not other devices on the Wi-Fi)
+address = "localhost"
+# The file watcher scans the 'transformers' library and prints harmless
+# "No module named 'torchvision'" tracebacks. Turning it off keeps the
+# terminal clean. After editing code, stop (Ctrl+C) and restart the app.
+fileWatcherType = "none"
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+primaryColor = "#2e7d32"

@@ -1,0 +1,7 @@
+# Farmers Assistant Chatbot - tested with Python 3.13 on Windows 11
+streamlit==1.65.0
+sentence-transformers==6.1.0
+torch==2.14.1
+numpy==2.5.4
+pypdf==6.20.1
+ollama==0.6.3

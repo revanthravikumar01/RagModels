@@ -3,6 +3,7 @@ from pypdf import PdfReader
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
 import numpy as np
+import ollama
 
 # Extract text from PDF documents
 
@@ -68,27 +69,59 @@ print("Embeddings saved successfully.")
 
 # Accept a question from the farmer
 
-question = input("\nAsk your farming question: ")
+while True:
+    question = input("\nAsk your farming question (type 'exit' to quit): ")
 
-question_embedding = model.encode([question])[0]
+    if question.lower() == "exit":
+        print("Thank you for using Farmers Assistant!")
+        break
 
-
-# Find the most relevant chunks
-
-similarities = np.dot(embeddings, question_embedding) / (
-    np.linalg.norm(embeddings, axis=1)
-    * np.linalg.norm(question_embedding)
-)
-
-top_indices = np.argsort(similarities)[::-1][:3]
+    question_embedding = model.encode([question])[0]
 
 
-# Display retrieved information
+    # Find the most relevant chunks
 
-print("\nMost relevant information from your documents:")
+    similarities = np.dot(embeddings, question_embedding) / (
+        np.linalg.norm(embeddings, axis=1)
+        * np.linalg.norm(question_embedding)
+    )
 
-for index in top_indices:
-    print(f"\nSimilarity score: {similarities[index]:.4f}")
-    print(chunks[index][:500])
-    print("-" * 50)
+    top_indices = np.argsort(similarities)[::-1][:3]
 
+
+    # Prepare context from retrieved documents
+
+    context = "\n\n".join(
+        chunks[index] for index in top_indices
+    )
+
+    # Generate an answer using Ollama
+
+    response = ollama.chat(
+        model="qwen2.5:1.5b",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a rice farming assistant. "
+                    "Answer using only the provided document context. "
+                    "If the context does not contain enough information, "
+                    "clearly say that the documents do not provide "
+                    "enough verified information. "
+                    "Do not invent facts."
+                )
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Document context:\n{context}\n\n"
+                    f"Farmer's question: {question}"
+                )
+            }
+        ]
+    )
+
+    # Display the final answer
+
+    print("\nFarmer's Assistant Answer:")
+    print(response["message"]["content"])
