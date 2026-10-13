@@ -4,14 +4,16 @@ from pypdf import PdfReader
 from pathlib import Path
 
 folder = Path("data")
+all_text = ""
 
 for file in folder.glob("*.pdf"):
     reader = PdfReader(file)
-
-    print(f"\nDocument: {file.name}")
 
     for page in reader.pages:
         text = page.extract_text()
 
         if text:
-            print(text)
+            all_text += text + "\n"
+
+print("Text extraction completed.")
+print("Total characters:", len(all_text))
