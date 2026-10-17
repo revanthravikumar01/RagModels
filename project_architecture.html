@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Farmers Assistant RAG — Project Architecture</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #0b1020;
+      --panel: #111a2e;
+      --panel-raised: #17233b;
+      --line: #293751;
+      --text: #edf3ff;
+      --muted: #a4b2ca;
+      --green: #6fe0b1;
+      --blue: #81b8ff;
+      --violet: #c4a3ff;
+      --amber: #ffd27a;
+      --cyan: #77dce8;
+      --red: #ff9d9d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(ellipse at 12% 0%, #172540 0, transparent 36rem),
+        var(--page);
+      color: var(--text);
+      font: 15px/1.5 "Segoe UI", system-ui, sans-serif;
+    }
+    main { width: min(1480px, 100%); margin: 0 auto; padding: 34px 24px 54px; }
+    header { margin: 0 0 24px; }
+    .eyebrow {
+      color: var(--green);
+      font-size: .76rem;
+      font-weight: 750;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 7px 0 9px; font-size: clamp(1.8rem, 4vw, 2.7rem); line-height: 1.1; }
+    .lede { max-width: 920px; margin: 0; color: var(--muted); font-size: 1.02rem; }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px 18px;
+      padding: 13px 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px 12px 0 0;
+      background: #10192b;
+    }
+    .legend { display: flex; flex-wrap: wrap; gap: 9px 16px; color: var(--muted); font-size: .82rem; }
+    .legend span { display: inline-flex; align-items: center; gap: 7px; }
+    .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+    .toolbar-note { margin-left: auto; color: var(--muted); font-size: .82rem; }
+    .canvas {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-top: 0;
+      border-radius: 0 0 12px 12px;
+      background: #0e1728;
+      scrollbar-color: #40516f #111a2e;
+    }
+    svg { display: block; width: 100%; min-width: 1080px; height: auto; }
+    .lane { fill: #111c30; stroke: #263550; stroke-width: 1.2; }
+    .lane.alt { fill: #0f1a2c; }
+    .lane-title { fill: #8192ad; font-size: 13px; font-weight: 750; letter-spacing: 1.2px; }
+    .lane-subtitle { fill: #70819d; font-size: 11px; }
+    .edge {
+      fill: none;
+      stroke: #9aabc4;
+      stroke-width: 2;
+      marker-end: url(#arrow);
+      transition: opacity .15s, stroke .15s, stroke-width .15s;
+    }
+    .edge.persist { stroke: var(--amber); marker-end: url(#arrow-amber); }
+    .edge.query { stroke: var(--blue); marker-end: url(#arrow-blue); }
+    .edge.answer { stroke: var(--green); marker-end: url(#arrow-green); }
+    .edge-label {
+      fill: #c4cfe1;
+      font-size: 11px;
+      paint-order: stroke;
+      stroke: #0e1728;
+      stroke-width: 5px;
+      stroke-linejoin: round;
+    }
+    .edge-label.query-label { fill: #b9d7ff; }
+    .edge-label.answer-label { fill: #a6f1ce; }
+    .edge-label.persist-label { fill: #ffdfa0; }
+    .edge.dim { opacity: .12; }
+    .edge.active { stroke-width: 3.5; opacity: 1; }
+    .node { cursor: pointer; outline: none; }
+    .node rect {
+      fill: #182640;
+      stroke: #527097;
+      stroke-width: 1.5;
+      rx: 12;
+      transition: stroke .15s, fill .15s, opacity .15s;
+    }
+    .node .accent { stroke: none; rx: 3; }
+    .node.frontend rect { stroke: var(--blue); }
+    .node.frontend .accent { fill: var(--blue); }
+    .node.backend rect { stroke: var(--violet); }
+    .node.backend .accent { fill: var(--violet); }
+    .node.store rect { stroke: var(--amber); }
+    .node.store .accent { fill: var(--amber); }
+    .node.local rect { stroke: var(--cyan); }
+    .node.local .accent { fill: var(--cyan); }
+    .node.person rect { stroke: var(--green); }
+    .node.person .accent { fill: var(--green); }
+    .node.legacy rect { stroke: #a2adbf; stroke-dasharray: 6 4; }
+    .node.legacy .accent { fill: #a2adbf; }
+    .node text { pointer-events: none; }
+    .node-title { fill: #f3f6fd; font-size: 14px; font-weight: 730; }
+    .node-sub { fill: #a9b8ce; font-size: 11px; }
+    .node-tag { fill: #91a2bc; font-size: 9px; font-weight: 750; letter-spacing: .8px; }
+    .node:hover rect, .node:focus rect, .node.selected rect {
+      fill: #203451;
+      stroke-width: 3;
+    }
+    .node.dim { opacity: .27; }
+    .small-note { fill: #96a5bc; font-size: 11px; }
+    .divider { stroke: #273752; stroke-width: 1; stroke-dasharray: 4 6; }
+    .detail-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(280px, .8fr);
+      gap: 16px;
+      margin-top: 18px;
+    }
+    .card {
+      min-width: 0;
+      padding: 19px 21px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: linear-gradient(145deg, #141f34, #101829);
+    }
+    .card h2 { margin: 0 0 9px; font-size: 1.12rem; }
+    .card p { margin: 7px 0; color: #bdc9da; }
+    .card ul { margin: 8px 0 0; padding-left: 20px; color: #bdc9da; }
+    .card li { margin: 5px 0; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0 0 8px;
+      padding: 3px 8px;
+      border: 1px solid #37634f;
+      border-radius: 999px;
+      color: #a5edca;
+      font-size: .72rem;
+      font-weight: 750;
+      letter-spacing: .04em;
+    }
+    .badge.docs { border-color: #6a5429; color: #ffdc96; }
+    .badge.caveat { border-color: #654144; color: #ffc0c0; }
+    .sources { color: #8fa1bd !important; font-size: .82rem; overflow-wrap: anywhere; }
+    code {
+      padding: .12em .38em;
+      border: 1px solid #30415d;
+      border-radius: 5px;
+      background: #0b1424;
+      color: #d7e7ff;
+      font: .9em ui-monospace, Consolas, monospace;
+    }
+    .callout {
+      border-left: 3px solid var(--amber);
+      padding-left: 12px;
+      color: #d4deeb !important;
+    }
+    .files { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px 16px; }
+    .files div { color: #b7c5d9; }
+    .files strong { color: #f0f4fb; }
+    footer { margin-top: 16px; color: #8595ae; font-size: .82rem; }
+    @media (max-width: 760px) {
+      main { padding: 24px 14px 38px; }
+      .detail-grid { grid-template-columns: 1fr; }
+      .toolbar-note { width: 100%; margin-left: 0; }
+      .files { grid-template-columns: 1fr; }
+    }
+    @media print {
+      :root { color-scheme: light; }
+      body { background: #fff; color: #172033; }
+      main { width: 100%; padding: 0; }
+      .canvas { overflow: visible; background: #fff; }
+      svg { min-width: 0; }
+      .toolbar, .card { background: #fff; }
+      .node-title { fill: #152033; }
+      .node-sub, .small-note, .lane-title, .lane-subtitle { fill: #43516a; }
+      .node rect, .lane { fill: #f5f8fc; }
+      .edge-label { stroke: #fff; fill: #23324c; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">Source-grounded system map · local project</div>
+    <h1>How the Farmers Assistant chatbot works</h1>
+    <p class="lede">A clickable map of the implemented Streamlit + RAG pipeline. Select any component to see its role and the source locations supporting it. Arrows show the direction of calls or data.</p>
+  </header>
+
+  <div class="toolbar" aria-label="Diagram legend">
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--green)"></i>User / response</span>
+      <span><i class="swatch" style="background:var(--blue)"></i>Streamlit UI</span>
+      <span><i class="swatch" style="background:var(--violet)"></i>Python processing</span>
+      <span><i class="swatch" style="background:var(--amber)"></i>Local files / persistence</span>
+      <span><i class="swatch" style="background:var(--cyan)"></i>Local model service</span>
+      <span>━━━&gt; verified source flow</span>
+    </div>
+    <div class="toolbar-note">Click a box · Tab + Enter also works · scroll sideways if needed</div>
+  </div>
+
+  <div class="canvas" role="region" aria-label="Scrollable architecture diagram">
+    <svg viewBox="0 0 2060 1010" xmlns="http://www.w3.org/2000/svg" aria-labelledby="diagram-title diagram-desc">
+      <title id="diagram-title">Farmers Assistant RAG chatbot architecture</title>
+      <desc id="diagram-desc">A source-grounded architecture showing user questions and PDF uploads flowing through Streamlit, the KnowledgeBase backend, NLP query processing, embedding and BM25 retrieval, reranking and local Ollama generation, plus local persistence and a separate legacy command-line prototype.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#9aabc4"/></marker>
+        <marker id="arrow-blue" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#81b8ff"/></marker>
+        <marker id="arrow-green" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#6fe0b1"/></marker>
+        <marker id="arrow-amber" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#ffd27a"/></marker>
+      </defs>
+
+      <rect class="lane" x="18" y="25" width="2040" height="535" rx="16"/>
+      <text class="lane-title" x="42" y="55">NORMAL STREAMLIT APPLICATION · VERIFIED IN SOURCE CODE</text>
+      <text class="lane-subtitle" x="42" y="76">The farmer’s question travels left to right; the answer returns to the UI with source citations.</text>
+      <rect class="lane alt" x="18" y="580" width="2040" height="260" rx="16"/>
+      <text class="lane-title" x="42" y="610">DOCUMENT INGESTION &amp; LOCAL PERSISTENCE</text>
+      <text class="lane-subtitle" x="42" y="631">Uploads are processed by backend.py; the original chunks are imported from disk. The index is JSON + NumPy, not a separate vector database server.</text>
+      <rect class="lane" x="18" y="858" width="2040" height="128" rx="16"/>
+      <text class="lane-title" x="42" y="886">SEPARATE / SUPPORTING PYTHON FILES</text>
+
+      <!-- Verified, source-derived connections: query path -->
+      <path class="edge query" d="M176 315H235"/>
+      <text class="edge-label query-label" x="180" y="301">question / PDF</text>
+      <path class="edge query" d="M435 320H520"/>
+      <text class="edge-label query-label" x="445" y="305">chat → kb.answer()</text>
+      <path class="edge answer" d="M520 365H435"/>
+      <text class="edge-label answer-label" x="440" y="385">answer + citations</text>
+      <path class="edge query" d="M715 295C760 295 748 166 800 166"/>
+      <text class="edge-label query-label" x="724" y="220">search() calls query prep</text>
+      <path class="edge query" d="M1015 166C1050 166 1038 294 1075 294"/>
+      <text class="edge-label query-label" x="1017" y="199">expanded query + terms</text>
+      <path class="edge query" d="M715 325C760 325 756 355 800 355"/>
+      <text class="edge-label query-label" x="722" y="345">encode query</text>
+      <path class="edge query" d="M1015 355H1075"/>
+      <text class="edge-label query-label" x="1018" y="342">semantic ranking</text>
+      <path class="edge query" d="M715 350C760 350 757 515 800 515"/>
+      <text class="edge-label query-label" x="721" y="468">keyword scores</text>
+      <path class="edge query" d="M1015 515C1054 515 1038 390 1075 390"/>
+      <text class="edge-label query-label" x="1016" y="475">BM25 ranking</text>
+      <path class="edge query" d="M1315 330H1370"/>
+      <text class="edge-label query-label" x="1318" y="315">top fused candidates</text>
+      <path class="edge query" d="M1565 330H1615"/>
+      <text class="edge-label query-label" x="1565" y="315">relevance scores</text>
+      <path class="edge query" d="M1800 330H1840"/>
+      <text class="edge-label query-label" x="1799" y="315">if threshold passes</text>
+      <path class="edge answer" d="M1935 385V500H615V420"/>
+      <text class="edge-label answer-label" x="1135" y="489">generated answer returns to KnowledgeBase</text>
+      <path class="edge answer" d="M520 405C490 485 435 485 435 405"/>
+      <text class="edge-label answer-label" x="438" y="466">render result + sources</text>
+
+      <!-- Verified, source-derived connections: ingestion and persistence -->
+      <path class="edge persist" d="M435 700H520"/>
+      <text class="edge-label persist-label" x="438" y="684">uploaded PDF bytes</text>
+      <path class="edge persist" d="M715 700H800"/>
+      <text class="edge-label persist-label" x="720" y="684">normalized chunks</text>
+      <path class="edge persist" d="M1015 700H1090"/>
+      <text class="edge-label persist-label" x="1017" y="684">chunks + vectors + metadata</text>
+      <path class="edge persist" d="M1090 750C1000 810 790 810 680 420"/>
+      <text class="edge-label persist-label" x="823" y="801">load at startup / restore index</text>
+      <path class="edge persist" d="M1565 702H1615"/>
+      <text class="edge-label persist-label" x="1565" y="686">uploaded file copy</text>
+      <path class="edge persist" d="M205 700H460V390H520"/>
+      <text class="edge-label persist-label" x="254" y="684">read / import at startup</text>
+
+      <!-- Source-supported nodes -->
+      <g class="node person" data-id="farmer" tabindex="0" role="button" aria-label="Farmer: click for details">
+        <rect x="36" y="285" width="140" height="120"/>
+        <rect class="accent" x="36" y="298" width="5" height="94"/>
+        <text class="node-tag" x="54" y="310">USER</text>
+        <text class="node-title" x="54" y="338">Farmer</text>
+        <text class="node-sub" x="54" y="359">asks a question</text>
+        <text class="node-sub" x="54" y="377">or uploads a PDF</text>
+      </g>
+      <g class="node frontend" data-id="ui" tabindex="0" role="button" aria-label="app.py Streamlit UI: click for details">
+        <rect x="235" y="275" width="200" height="145"/>
+        <rect class="accent" x="235" y="289" width="5" height="116"/>
+        <text class="node-tag" x="253" y="300">FRONTEND · app.py</text>
+        <text class="node-title" x="253" y="330">Streamlit interface</text>
+        <text class="node-sub" x="253" y="352">Chat · PDF upload · sources</text>
+        <text class="node-sub" x="253" y="371">NLP Insights page</text>
+        <text class="node-sub" x="253" y="390">cached KnowledgeBase</text>
+      </g>
+      <g class="node backend" data-id="backend" tabindex="0" role="button" aria-label="backend.py KnowledgeBase: click for details">
+        <rect x="520" y="265" width="195" height="155"/>
+        <rect class="accent" x="520" y="279" width="5" height="127"/>
+        <text class="node-tag" x="538" y="290">BACKEND · backend.py</text>
+        <text class="node-title" x="538" y="321">KnowledgeBase</text>
+        <text class="node-sub" x="538" y="344">owns indexing + search</text>
+        <text class="node-sub" x="538" y="363">manages documents/chunks</text>
+        <text class="node-sub" x="538" y="382">answers via local LLM</text>
+      </g>
+      <g class="node backend" data-id="nlp" tabindex="0" role="button" aria-label="nlp.py query processing: click for details">
+        <rect x="800" y="115" width="215" height="105"/>
+        <rect class="accent" x="800" y="128" width="5" height="79"/>
+        <text class="node-tag" x="818" y="139">nlp.py · QUERY PREP</text>
+        <text class="node-title" x="818" y="168">Follow-up + expansion</text>
+        <text class="node-sub" x="818" y="188">keywords · tokenization</text>
+        <text class="node-sub" x="818" y="204">normalize / stem helpers</text>
+      </g>
+      <g class="node backend" data-id="embedder" tabindex="0" role="button" aria-label="SentenceTransformer embedding model: click for details">
+        <rect x="800" y="305" width="215" height="105"/>
+        <rect class="accent" x="800" y="318" width="5" height="79"/>
+        <text class="node-tag" x="818" y="329">SENTENCE-TRANSFORMERS</text>
+        <text class="node-title" x="818" y="358">BGE embeddings</text>
+        <text class="node-sub" x="818" y="378">BAAI/bge-small-en-v1.5</text>
+        <text class="node-sub" x="818" y="394">local CPU · normalized vectors</text>
+      </g>
+      <g class="node backend" data-id="bm25" tabindex="0" role="button" aria-label="BM25Index in nlp.py: click for details">
+        <rect x="800" y="465" width="215" height="105"/>
+        <rect class="accent" x="800" y="478" width="5" height="79"/>
+        <text class="node-tag" x="818" y="489">nlp.py · IN-MEMORY INDEX</text>
+        <text class="node-title" x="818" y="518">BM25 keyword search</text>
+        <text class="node-sub" x="818" y="538">exact terms + IDF ranking</text>
+        <text class="node-sub" x="818" y="554">rebuilt from current chunks</text>
+      </g>
+      <g class="node backend" data-id="fusion" tabindex="0" role="button" aria-label="backend.py hybrid retrieval: click for details">
+        <rect x="1075" y="255" width="240" height="150"/>
+        <rect class="accent" x="1075" y="270" width="5" height="120"/>
+        <text class="node-tag" x="1093" y="281">backend.py · RETRIEVAL</text>
+        <text class="node-title" x="1093" y="311">Hybrid search + RRF</text>
+        <text class="node-sub" x="1093" y="333">semantic dot product + BM25</text>
+        <text class="node-sub" x="1093" y="352">fuse ranks (up to 20 candidates)</text>
+        <text class="node-sub" x="1093" y="371">final response uses top_k (default 5)</text>
+      </g>
+      <g class="node backend" data-id="reranker" tabindex="0" role="button" aria-label="Cross-encoder reranker: click for details">
+        <rect x="1370" y="275" width="195" height="110"/>
+        <rect class="accent" x="1370" y="289" width="5" height="82"/>
+        <text class="node-tag" x="1388" y="300">CROSS-ENCODER · CPU</text>
+        <text class="node-title" x="1388" y="330">Re-rank passages</text>
+        <text class="node-sub" x="1388" y="351">ms-marco-MiniLM-L6-v2</text>
+        <text class="node-sub" x="1388" y="368">question + page context</text>
+      </g>
+      <g class="node backend" data-id="relevance-gate" tabindex="0" role="button" aria-label="backend.py relevance gate: click for details">
+        <rect x="1615" y="275" width="185" height="110"/>
+        <rect class="accent" x="1615" y="289" width="5" height="82"/>
+        <text class="node-tag" x="1633" y="300">backend.py · DECISION</text>
+        <text class="node-title" x="1633" y="330">Relevance gate</text>
+        <text class="node-sub" x="1633" y="351">below minimum → refuse</text>
+        <text class="node-sub" x="1633" y="368">skip LLM when insufficient</text>
+      </g>
+      <g class="node local" data-id="ollama" tabindex="0" role="button" aria-label="Ollama local LLM: click for details">
+        <rect x="1840" y="275" width="190" height="110"/>
+        <rect class="accent" x="1840" y="289" width="5" height="82"/>
+        <text class="node-tag" x="1858" y="300">LOCAL SERVICE · OLLAMA</text>
+        <text class="node-title" x="1858" y="330">Qwen 2.5</text>
+        <text class="node-sub" x="1858" y="351">3B preferred; 1.5B fallback</text>
+        <text class="node-sub" x="1858" y="368">no hosted LLM in code</text>
+      </g>
+      <text class="small-note" x="1370" y="410">The backend checks the best reranker score before calling the local model.</text>
+      <text class="small-note" x="1370" y="429">Ollama receives numbered evidence blocks and a source-only system prompt.</text>
+
+      <g class="node store" data-id="original-chunks" tabindex="0" role="button" aria-label="data/chunks.txt: click for details">
+        <rect x="36" y="655" width="169" height="90"/>
+        <rect class="accent" x="36" y="668" width="5" height="64"/>
+        <text class="node-tag" x="54" y="679">SEED TEXT FILE</text>
+        <text class="node-title" x="54" y="708">data/chunks.txt</text>
+        <text class="node-sub" x="54" y="727">original chunks · no page IDs</text>
+      </g>
+      <g class="node backend" data-id="pdf-pipeline" tabindex="0" role="button" aria-label="PDF processing and chunking in backend.py: click for details">
+        <rect x="520" y="655" width="195" height="100"/>
+        <rect class="accent" x="520" y="668" width="5" height="74"/>
+        <text class="node-tag" x="538" y="679">backend.py · add_pdf()</text>
+        <text class="node-title" x="538" y="708">PDF processing</text>
+        <text class="node-sub" x="538" y="728">pypdf → normalize → chunks</text>
+        <text class="node-sub" x="538" y="744">1,500 chars · 300 overlap</text>
+      </g>
+      <g class="node store" data-id="vector-store" tabindex="0" role="button" aria-label="vector_store persistence: click for details">
+        <rect x="1090" y="655" width="250" height="115"/>
+        <rect class="accent" x="1090" y="669" width="5" height="87"/>
+        <text class="node-tag" x="1108" y="680">LOCAL DISK · vector_store/</text>
+        <text class="node-title" x="1108" y="709">JSON + NumPy files</text>
+        <text class="node-sub" x="1108" y="729">documents.json · chunks.json</text>
+        <text class="node-sub" x="1108" y="748">embeddings.npy</text>
+      </g>
+      <g class="node store" data-id="upload-files" tabindex="0" role="button" aria-label="Uploaded PDFs stored locally: click for details">
+        <rect x="1370" y="655" width="195" height="95"/>
+        <rect class="accent" x="1370" y="668" width="5" height="69"/>
+        <text class="node-tag" x="1388" y="679">PDF COPIES</text>
+        <text class="node-title" x="1388" y="708">data/uploads/</text>
+        <text class="node-sub" x="1388" y="728">used to rebuild the index</text>
+      </g>
+      <g class="node store" data-id="data-embeddings" tabindex="0" role="button" aria-label="Legacy data embeddings: click for details">
+        <rect x="1615" y="655" width="190" height="95"/>
+        <rect class="accent" x="1615" y="668" width="5" height="69"/>
+        <text class="node-tag" x="1633" y="679">LEGACY ARTIFACT</text>
+        <text class="node-title" x="1633" y="708">data/embeddings.npy</text>
+        <text class="node-sub" x="1633" y="728">reused only if it matches</text>
+      </g>
+      <text class="small-note" x="800" y="735">Backend embeds new chunks before saving them; BM25 is rebuilt in memory.</text>
+      <text class="small-note" x="800" y="753">vector_store/ is a file-backed index, not Chroma or a database server.</text>
+
+      <path class="edge persist" d="M715 700C750 700 765 380 800 380"/>
+      <text class="edge-label persist-label" x="728" y="570">chunks → embed</text>
+      <path class="edge persist" d="M715 715C755 715 758 515 800 515"/>
+      <text class="edge-label persist-label" x="725" y="636">tokens → BM25 index</text>
+      <path class="edge persist" d="M715 700H1090"/>
+      <path class="edge persist" d="M715 735C960 830 1050 824 1090 750"/>
+      <path class="edge persist" d="M715 755V795H1465V750"/>
+      <text class="edge-label persist-label" x="1040" y="789">store uploaded PDF copy</text>
+      <path class="edge persist" d="M1710 655V625H700V420"/>
+      <text class="edge-label persist-label" x="1080" y="618">optional original-vector reuse after checks</text>
+      <path class="edge persist" d="M270 900V780H120V745"/>
+      <text class="edge-label persist-label" x="123" y="778">writes original chunks</text>
+
+      <line class="divider" x1="42" y1="878" x2="2035" y2="878"/>
+      <g class="node legacy" data-id="main-py" tabindex="0" role="button" aria-label="main.py legacy CLI prototype: click for details">
+        <rect x="42" y="900" width="460" height="65"/>
+        <rect class="accent" x="42" y="911" width="5" height="43"/>
+        <text class="node-tag" x="61" y="921">SEPARATE LEGACY CLI · NOT THE STREAMLIT REQUEST PATH</text>
+        <text class="node-title" x="61" y="944">main.py: older PDF → chunks → embeddings → Ollama script</text>
+      </g>
+      <g class="node legacy" data-id="evaluation" tabindex="0" role="button" aria-label="evaluate.py test runner: click for details">
+        <rect x="530" y="900" width="410" height="65"/>
+        <rect class="accent" x="530" y="911" width="5" height="43"/>
+        <text class="node-tag" x="549" y="921">OPTIONAL EVALUATION · evaluate.py</text>
+        <text class="node-title" x="549" y="944">Retrieval checks; --full also calls answer generation</text>
+      </g>
+      <g class="node legacy" data-id="project-files" tabindex="0" role="button" aria-label="Project files and documentation: click for details">
+        <rect x="968" y="900" width="837" height="65"/>
+        <rect class="accent" x="968" y="911" width="5" height="43"/>
+        <text class="node-tag" x="987" y="921">PROJECT REFERENCE</text>
+        <text class="node-title" x="987" y="944">README.md · requirements.txt · tests/eval_questions.json</text>
+      </g>
+    </svg>
+  </div>
+
+  <section class="detail-grid" aria-live="polite">
+    <article class="card" id="details">
+      <span class="badge">VERIFIED IN SOURCE</span>
+      <h2 id="detail-title">Start here: the question path</h2>
+      <p id="detail-copy">The main app is app.py. It gets one cached backend.KnowledgeBase, passes questions to kb.answer(), and renders the returned answer, status, and sources. backend.search() prepares a query, combines semantic and BM25 rankings, reranks candidates, and backend.answer() calls Ollama only if the best relevance meets the threshold.</p>
+      <p class="sources" id="detail-sources">Evidence: app.py 27–29, 231–258 · backend.py 629–676, 695–769 · nlp.py 171–225</p>
+    </article>
+    <article class="card">
+      <span class="badge docs">SOURCE + DOCUMENTATION</span>
+      <h2>Read the map accurately</h2>
+      <ul>
+        <li><strong>Verified</strong> means the component or arrow is grounded in inspected code. Click boxes for source file and line references.</li>
+        <li><strong>Documented</strong> marks setup guidance from README.md; the diagram does not verify what is installed or running on this PC.</li>
+        <li>The checked-out source has local model names and no hosted LLM integration. Initial model downloads require internet per README; actual runtime/network behavior was not tested.</li>
+        <li>Scanned-PDF OCR, voice, images, multilingual support, and mobile apps are not implemented in this code.</li>
+      </ul>
+      <p class="callout">No architecture assumptions are used to fill missing source behavior. Model availability, Ollama process status, and GPU use remain runtime facts that this source inspection cannot verify.</p>
+    </article>
+  </section>
+
+  <section class="card" style="margin-top:16px">
+    <span class="badge">BEGINNER STUDY ORDER</span>
+    <h2>Five useful files to open first</h2>
+    <div class="files">
+      <div><strong>README.md</strong> — project overview, setup, limitations</div>
+      <div><strong>app.py</strong> — Streamlit pages, upload and chat flow</div>
+      <div><strong>backend.py</strong> — PDF indexing, persistence, retrieval, answer generation</div>
+      <div><strong>nlp.py</strong> — query handling, text processing, BM25</div>
+      <div><strong>requirements.txt</strong> — Python package dependencies</div>
+    </div>
+  </section>
+  <footer>Self-contained HTML · no JavaScript libraries, network requests, or server required. Built from local source inspection; no source files were changed.</footer>
+</main>
+<script>
+  const descriptions = {
+    farmer: {
+      title: "Farmer — question and document input",
+      copy: "The interface accepts a PDF upload in the sidebar or a chat question. Chat input is disabled until at least one document is listed in the knowledge base.",
+      sources: "Evidence: app.py 102–127, 231–248"
+    },
+    ui: {
+      title: "app.py — Streamlit interface",
+      copy: "This is the Streamlit entry point. It caches one KnowledgeBase with st.cache_resource, collects uploaded PDF bytes, calls kb.add_pdf(), and calls kb.answer() for a question. It displays answer status, query details, and cited source passages. It also has an NLP Insights view.",
+      sources: "Evidence: app.py 27–34, 102–127, 231–258, 261–329"
+    },
+    backend: {
+      title: "backend.py — KnowledgeBase and RAG orchestration",
+      copy: "KnowledgeBase loads the local index and CPU models, indexes added documents, runs hybrid search, applies the minimum-relevance refusal gate, then optionally calls Ollama. It returns an AnswerResult for the UI, including status and citations.",
+      sources: "Evidence: backend.py 278–306, 310–349, 525–587, 629–676, 695–769"
+    },
+    nlp: {
+      title: "nlp.py — query preparation and language helpers",
+      copy: "build_search_query() can combine a short pronoun follow-up with the prior question, expand known farming abbreviations, and create keyword tokens. The module also contains normalization, stopword/tokenization, light stemming, and the BM25Index implementation.",
+      sources: "Evidence: nlp.py 44–109, 136–225"
+    },
+    embedder: {
+      title: "SentenceTransformer — local semantic embeddings",
+      copy: "backend.py loads the configured SentenceTransformer on CPU. The default is BAAI/bge-small-en-v1.5. _embed() creates normalized NumPy vectors for document chunks and query text; query text receives the BGE search prefix.",
+      sources: "Evidence: backend.py 54–72, 278–293, 387–399"
+    },
+    bm25: {
+      title: "BM25Index — keyword retrieval",
+      copy: "The backend tokenizes all current chunks and constructs nlp.BM25Index in memory. For each query it scores exact keyword matches. These scores are combined with semantic ranks using reciprocal-rank fusion; this index is rebuilt from the current chunk set rather than persisted as a separate database.",
+      sources: "Evidence: backend.py 374–383, 629–676 · nlp.py 191–225"
+    },
+    fusion: {
+      title: "backend.py — hybrid retrieval and fusion",
+      copy: "Semantic similarity compares the query vector with stored chunk vectors. BM25 scores exact terms. Reciprocal Rank Fusion merges both rankings; up to 20 fused candidates go to the cross-encoder, and the method returns the requested top_k (default 5) with scores and chunk metadata.",
+      sources: "Evidence: backend.py 629–676 · settings backend.py 81–88"
+    },
+    reranker: {
+      title: "Cross-encoder — relevance reranking",
+      copy: "A local CrossEncoder reads each candidate passage together with the query and predicts a relevance score. When available, the beginning of the same PDF page is added as context. The relevance score contributes to final ranking and is also used by the refusal threshold.",
+      sources: "Evidence: backend.py 73–80, 278–293, 657–675, 678–682"
+    },
+    "relevance-gate": {
+      title: "backend.py — relevance threshold decision",
+      copy: "backend.answer() compares the best cross-encoder relevance score with min_relevance. If no result meets the threshold, it returns the fixed insufficient-information response without calling Ollama. Otherwise it creates numbered evidence blocks and continues to model selection and generation.",
+      sources: "Evidence: backend.py 695–720, 733–750"
+    },
+    ollama: {
+      title: "Ollama — local language model",
+      copy: "The backend checks installed Ollama model names, preferring FARMBOT_LLM_MODEL when configured, then qwen2.5:3b and qwen2.5:1.5b. It calls ollama.chat() with evidence blocks and a system prompt. The code uses the local Ollama Python client; a hosted LLM/API is not shown.",
+      sources: "Evidence: backend.py 77–80, 264–271, 104–113, 733–750"
+    },
+    "original-chunks": {
+      title: "data/chunks.txt — pre-built original collection",
+      copy: "On first startup, backend.py imports this text file as the original rice collection if it has not already been imported. These chunks have no recorded page number. Existing data/embeddings.npy may be reused only if its shape and sampled vectors match the current model; otherwise the app creates embeddings.",
+      sources: "Evidence: backend.py 304–306, 411–464, 466–485"
+    },
+    "pdf-pipeline": {
+      title: "backend.py — PDF extraction and chunking",
+      copy: "Uploaded bytes are parsed with pypdf.PdfReader page by page. Extracted text is normalized with nlp.normalize_text(), then split into 1,500-character chunks with 300-character overlap. Page numbers are retained. Empty/scanned PDFs are rejected because OCR is not included.",
+      sources: "Evidence: backend.py 248–261, 90–92, 525–587 · nlp.py 44–59"
+    },
+    "vector-store": {
+      title: "vector_store/ — local persistent index",
+      copy: "The app persists document metadata in documents.json, chunk text and page metadata in chunks.json, and aligned vectors in embeddings.npy. Writes use temporary/atomic replacement. On startup, it loads those files and can rebuild stale or out-of-sync embeddings. This is file-backed NumPy/JSON storage, not a separate vector-database service.",
+      sources: "Evidence: backend.py 46–64, 310–349, 401–407 · README.md 145–148"
+    },
+    "upload-files": {
+      title: "data/uploads/ — stored uploaded PDF copies",
+      copy: "For a new upload the backend stores the PDF bytes under its uploads directory and records the relative path in document metadata. During index rebuild, it reads that stored PDF and reprocesses it. Removal deletes the stored uploaded copy when it is under the expected upload directory.",
+      sources: "Evidence: backend.py 54–57, 363–368, 563–575, 610–615"
+    },
+    "data-embeddings": {
+      title: "data/embeddings.npy — legacy embedding artifact",
+      copy: "This artifact is produced by main.py's older all-MiniLM-L6-v2 script. The current backend may reuse it when importing data/chunks.txt only after dimension and spot-check consistency checks; otherwise it re-embeds the original chunks.",
+      sources: "Evidence: main.py 52–67 · backend.py 411–464, 466–485"
+    },
+    "main-py": {
+      title: "main.py — separate command-line prototype",
+      copy: "This standalone script reads data/*.pdf, extracts text, creates 1,000-character chunks with 200-character overlap, writes data/chunks.txt and data/embeddings.npy using all-MiniLM-L6-v2, then accepts questions and calls Ollama with qwen2.5:1.5b. It is not the Streamlit app's question path.",
+      sources: "Evidence: main.py 8–67, 70–127 · README.md 134"
+    },
+    evaluation: {
+      title: "evaluate.py — optional evaluation runner",
+      copy: "The script loads the same backend KnowledgeBase and reads expected questions from tests/eval_questions.json. By default it measures retrieval; --full also invokes answer generation and checks for repeated lines.",
+      sources: "Evidence: evaluate.py 1–13, 21–23, 36–58"
+    },
+    "project-files": {
+      title: "README.md, requirements.txt, and tests",
+      copy: "README.md describes the design, Windows setup, and known limitations. requirements.txt lists pinned Python packages. tests/eval_questions.json stores evaluation questions and expected pages. Launch commands are documented, not executed as part of producing this diagram.",
+      sources: "Evidence: README.md 16–24, 170–200, 275–290 · requirements.txt 1–7 · evaluate.py 21–23"
+    }
+  };
+
+  const nodes = [...document.querySelectorAll(".node[data-id]")];
+  const edges = [...document.querySelectorAll(".edge")];
+  const detailTitle = document.getElementById("detail-title");
+  const detailCopy = document.getElementById("detail-copy");
+  const detailSources = document.getElementById("detail-sources");
+  let selectedId = null;
+
+  function selectNode(node) {
+    const id = node.dataset.id;
+    const info = descriptions[id];
+    if (!info) return;
+    selectedId = id;
+    nodes.forEach(item => {
+      item.classList.toggle("selected", item === node);
+      item.classList.remove("dim");
+    });
+    edges.forEach(edge => edge.classList.remove("dim", "active"));
+    detailTitle.textContent = info.title;
+    detailCopy.textContent = info.copy;
+    detailSources.textContent = info.sources;
+  }
+
+  nodes.forEach(node => {
+    node.addEventListener("click", () => selectNode(node));
+    node.addEventListener("keydown", event => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        selectNode(node);
+      }
+    });
+  });
+</script>
+</body>
+</html>
